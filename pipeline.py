@@ -101,13 +101,31 @@ def load_genre_map():
     return genres
 
 
-def discover_catalog(kind, provider_id):
+def load_provider_ids():
+    """Map each service to ALL matching TMDB provider ids, including channel
+    variants like 'Paramount+ Amazon Channel' (which have separate ids)."""
+    def norm(name):
+        return name.lower().replace(" plus", "+")
+    matched = {service: {pid} for service, pid in PROVIDERS.items()}
+    for kind in ("movie", "tv"):
+        for p in tmdb_get(f"/watch/providers/{kind}", watch_region=WATCH_REGION)["results"]:
+            pname = norm(p["provider_name"])
+            for service in PROVIDERS:
+                if pname.startswith(norm(service)):
+                    matched[service].add(p["provider_id"])
+    for service, ids in matched.items():
+        if len(ids) > 1:
+            print(f"  {service}: including {len(ids)} provider variants {sorted(ids)}")
+    return matched
+
+
+def discover_catalog(kind, provider_ids):
     """All titles on one service via TMDB Discover. kind: 'movie' or 'tv'."""
     results, page, total = {}, 1, 1
     while page <= total and page <= MAX_PAGES:
         data = tmdb_get(
             f"/discover/{kind}",
-            with_watch_providers=provider_id,
+            with_watch_providers="|".join(str(i) for i in provider_ids),
             watch_region=WATCH_REGION,
             with_watch_monetization_types="flatrate|free|ads",
             sort_by="popularity.desc",
@@ -294,14 +312,16 @@ def main():
 
     ratings = load_imdb_ratings()
     genre_map = load_genre_map()
+    print("Resolving provider variants...")
+    provider_map = load_provider_ids()
     db = cache_init()
 
     # titles[(kind, tmdb_id)] = {"item": tmdb_result, "services": set()}
     titles = {}
-    for service, pid in PROVIDERS.items():
+    for service, pids in provider_map.items():
         for kind in ("movie", "tv"):
             print(f"Discovering {kind}s on {service}...")
-            catalog = discover_catalog(kind, pid)
+            catalog = discover_catalog(kind, pids)
             print(f"  {len(catalog):,} titles")
             for tmdb_id, item in catalog.items():
                 key = (kind, tmdb_id)

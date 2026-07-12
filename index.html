@@ -1,0 +1,396 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>FlopFilter — find what's actually worth watching</title>
+<style>
+  :root {
+    --bg: #0e1117; --panel: #161b26; --panel2: #1d2433; --border: #2a3347;
+    --text: #e8ecf4; --muted: #8b95a8; --accent: #f5c518; --accent2: #4f8cff;
+  }
+  * { box-sizing: border-box; margin: 0; padding: 0; }
+  body { background: var(--bg); color: var(--text); font: 15px/1.5 -apple-system, "Segoe UI", Roboto, sans-serif; }
+  header { padding: 20px 28px 12px; display: flex; align-items: baseline; gap: 14px; flex-wrap: wrap; }
+  header h1 { font-size: 22px; }
+  header h1 span { color: var(--accent); }
+  header .sub { color: var(--muted); font-size: 13px; }
+  .filters {
+    display: flex; gap: 10px; flex-wrap: wrap; align-items: center;
+    padding: 12px 28px 16px; border-bottom: 1px solid var(--border);
+    position: sticky; top: 0; background: var(--bg); z-index: 5;
+  }
+  .filters label { font-size: 12px; color: var(--muted); display: block; margin-bottom: 3px; }
+  .filters select, .filters input {
+    background: var(--panel2); color: var(--text); border: 1px solid var(--border);
+    border-radius: 8px; padding: 7px 10px; font-size: 14px; min-width: 110px;
+  }
+  .filters input[type=number] { width: 90px; min-width: 0; }
+  .chiprow { display: flex; gap: 6px; flex-wrap: wrap; max-width: 560px; }
+  .chip {
+    background: var(--panel2); border: 1px solid var(--border); color: var(--muted);
+    border-radius: 999px; padding: 5px 12px; font-size: 13px; cursor: pointer; user-select: none;
+  }
+  .chip.on { background: var(--accent2); border-color: var(--accent2); color: #fff; }
+  .count { margin-left: auto; color: var(--muted); font-size: 13px; white-space: nowrap; }
+  .list { max-width: 1100px; margin: 0 auto; padding: 16px 20px 60px; }
+  .row {
+    display: grid; grid-template-columns: 130px 72px 86px 60px 1fr;
+    gap: 16px; align-items: center; padding: 12px 14px; border-radius: 12px;
+    background: var(--panel); border: 1px solid var(--border); margin-bottom: 10px;
+  }
+  .services { display: flex; flex-direction: column; gap: 4px; }
+  .svc {
+    font-size: 11px; font-weight: 600; text-align: center; border-radius: 6px;
+    padding: 3px 6px; color: #fff; letter-spacing: .2px; white-space: nowrap;
+  }
+  .poster { width: 72px; height: 108px; border-radius: 8px; object-fit: cover; background: var(--panel2); display: block; }
+  .noposter {
+    width: 72px; height: 108px; border-radius: 8px; background: var(--panel2);
+    display: flex; align-items: center; justify-content: center;
+    color: var(--muted); font-size: 24px; font-weight: 700;
+  }
+  .rating { text-align: center; }
+  .rating .score { font-size: 24px; font-weight: 700; color: var(--accent); }
+  .rating .votes { font-size: 11px; color: var(--muted); }
+  .rating .rt { font-size: 12px; font-weight: 600; margin-top: 4px; }
+  .rt.fresh { color: #fa5342; }
+  .rt.rotten { color: #7bc043; }
+  .rt.none { color: var(--muted); font-weight: 400; }
+  .year { color: var(--muted); font-size: 15px; text-align: center; }
+  .info .title { font-weight: 600; font-size: 16px; }
+  .info .title .badge {
+    font-size: 10px; font-weight: 600; color: var(--accent2); border: 1px solid var(--accent2);
+    border-radius: 4px; padding: 1px 5px; margin-left: 8px; vertical-align: 2px;
+  }
+  .info .title .badge.movie { color: #f28c28; border-color: #f28c28; }
+  .info .genres { font-size: 12px; color: var(--muted); margin: 2px 0 4px; }
+  .info .desc {
+    font-size: 13px; color: #b9c2d4; display: -webkit-box;
+    -webkit-line-clamp: 3; -webkit-box-orient: vertical; overflow: hidden;
+  }
+  .contactlink {
+    position: absolute; top: 16px; right: 24px; z-index: 10;
+    color: var(--accent2); text-decoration: none; font-size: 14px;
+    border: 1px solid var(--border); border-radius: 8px; padding: 6px 14px;
+    background: var(--panel);
+  }
+  .contactlink:hover { border-color: var(--accent2); }
+  .searchbar { padding: 16px 28px 0; }
+  .searchbar input {
+    width: 100%; max-width: 640px; display: block; margin: 0 auto;
+    background: var(--panel2); color: var(--text); border: 1px solid var(--border);
+    border-radius: 12px; padding: 12px 16px; font-size: 16px; outline: none;
+  }
+  .searchbar input:focus { border-color: var(--accent2); }
+  .empty { text-align: center; color: var(--muted); padding: 60px 0; }
+  .samplenote {
+    max-width: 1100px; margin: 14px auto 0; padding: 10px 16px; font-size: 13px;
+    background: #2a2410; border: 1px solid #5a4d1a; border-radius: 10px; color: var(--accent);
+  }
+  footer {
+    max-width: 1100px; margin: 0 auto; padding: 24px 20px 40px;
+    border-top: 1px solid var(--border); color: var(--muted); font-size: 12px;
+    line-height: 1.8; text-align: center;
+  }
+  footer a { color: var(--muted); }
+  @media (max-width: 720px) {
+    .row { grid-template-columns: 60px 60px 1fr; grid-auto-rows: auto; }
+    .services { grid-column: 1 / -1; flex-direction: row; flex-wrap: wrap; }
+    .year { display: none; }
+  }
+</style>
+</head>
+<body>
+
+<a class="contactlink" href="contact.html">Contact Us</a>
+
+<div class="searchbar">
+  <input type="search" id="searchBox" placeholder="Search for a movie or TV show to see where it's streaming…" autocomplete="off">
+</div>
+
+<header>
+  <h1>Flop<span>Filter</span></h1>
+  <div class="sub">Every title on your streaming services, sorted by IMDb or Rotten Tomatoes rating. No more endless scrolling.</div>
+</header>
+
+<div class="filters">
+  <div>
+    <label>Services</label>
+    <div class="chiprow" id="serviceChips"></div>
+  </div>
+  <div>
+    <label>Type</label>
+    <select id="typeSel">
+      <option value="all">Movies + TV</option>
+      <option value="movie" selected>Movies</option>
+      <option value="tv">TV Shows</option>
+    </select>
+  </div>
+  <div>
+    <label>Genre</label>
+    <select id="genreSel"><option value="all">All genres</option></select>
+  </div>
+  <div>
+    <label>Language</label>
+    <select id="langSel"><option value="all">All languages</option></select>
+  </div>
+  <div>
+    <label>Released after</label>
+    <input type="number" id="yearMin" placeholder="1900" step="1">
+  </div>
+  <div>
+    <label>Released before</label>
+    <input type="number" id="yearMax" placeholder="2026" step="1">
+  </div>
+  <div>
+    <label>Rate by</label>
+    <select id="rateBy">
+      <option value="imdb" selected>IMDb</option>
+      <option value="rt">Rotten Tomatoes</option>
+    </select>
+  </div>
+  <div>
+    <label id="minLabel">Min IMDb rating</label>
+    <input type="number" id="minRating" value="6.0" step="0.1" min="0" max="10">
+  </div>
+  <div class="count" id="count"></div>
+</div>
+
+<div id="sampleNote" class="samplenote" style="display:none">
+  Showing built-in sample data. Run <b>pipeline.py</b> to generate <b>data.json</b> with real, full catalogs.
+</div>
+
+<div class="list" id="list"></div>
+
+<footer>
+  &copy; 2026 FlopFilter. All rights reserved.<br>
+  This product uses the TMDB API but is not endorsed or certified by
+  <a href="https://www.themoviedb.org" target="_blank" rel="noopener">TMDB</a>.
+  Streaming availability data provided by
+  <a href="https://www.justwatch.com" target="_blank" rel="noopener">JustWatch</a>.<br>
+  Ratings information courtesy of
+  <a href="https://www.imdb.com" target="_blank" rel="noopener">IMDb</a>. Used with permission.
+  Rotten Tomatoes&reg; scores via the
+  <a href="https://www.omdbapi.com" target="_blank" rel="noopener">OMDb API</a>.
+</footer>
+
+<script>
+const SERVICE_COLORS = {
+  "Netflix": "#e50914", "Prime Video": "#00a8e1", "Disney+": "#0c4da2",
+  "Hulu": "#1ce783", "Max": "#5822b4", "Apple TV+": "#555555",
+  "Paramount+": "#0064ff", "Peacock": "#000000"
+};
+
+// Sample data so the prototype works before you run the pipeline.
+// Ratings are illustrative — real data comes from pipeline.py.
+const SAMPLE_DATA = { generated: "sample", titles: [
+  {title:"The Shawshank Redemption", type:"movie", year:1994, imdb_rating:9.3, imdb_votes:2900000, genres:["Drama"], services:["Max"], overview:"Imprisoned in the 1940s for the double murder of his wife and her lover, upstanding banker Andy Dufresne begins a new life at Shawshank prison, where he puts his accounting skills to work and forms an unlikely friendship.", poster:null},
+  {title:"The Dark Knight", type:"movie", year:2008, imdb_rating:9.0, imdb_votes:2900000, genres:["Action","Crime","Drama"], services:["Netflix","Prime Video"], overview:"Batman raises the stakes in his war on crime with the help of Lt. Jim Gordon and DA Harvey Dent, but soon finds himself prey to a reign of chaos unleashed by the Joker.", poster:null},
+  {title:"Breaking Bad", type:"tv", year:2008, imdb_rating:9.5, imdb_votes:2300000, genres:["Crime","Drama","Thriller"], services:["Netflix"], overview:"A high school chemistry teacher diagnosed with inoperable lung cancer turns to manufacturing and selling methamphetamine to secure his family's future.", poster:null},
+  {title:"Inception", type:"movie", year:2010, imdb_rating:8.8, imdb_votes:2600000, genres:["Action","Sci-Fi","Thriller"], services:["Netflix"], overview:"A thief who steals corporate secrets through dream-sharing technology is given the inverse task of planting an idea into the mind of a C.E.O.", poster:null},
+  {title:"Parasite", type:"movie", year:2019, imdb_rating:8.5, imdb_votes:1000000, language:"ko", genres:["Drama","Thriller"], services:["Hulu","Max"], overview:"Greed and class discrimination threaten the newly formed symbiotic relationship between the wealthy Park family and the destitute Kim clan.", poster:null},
+  {title:"The Bear", type:"tv", year:2022, imdb_rating:8.5, imdb_votes:250000, genres:["Comedy","Drama"], services:["Hulu","Disney+"], overview:"A young chef from the fine dining world returns to Chicago to run his family's sandwich shop.", poster:null},
+  {title:"Whiplash", type:"movie", year:2014, imdb_rating:8.5, imdb_votes:1000000, genres:["Drama","Music"], services:["Netflix"], overview:"A promising young drummer enrolls at a cut-throat music conservatory where his dreams of greatness are mentored by an instructor who will stop at nothing to realize a student's potential.", poster:null},
+  {title:"Andor", type:"tv", year:2022, imdb_rating:8.4, imdb_votes:300000, genres:["Action","Adventure","Sci-Fi"], services:["Disney+"], overview:"Prequel series to Star Wars' 'Rogue One'. In an era filled with danger, deception and intrigue, Cassian Andor embarks on a path destined to turn him into a rebel hero.", poster:null},
+  {title:"Top Gun: Maverick", type:"movie", year:2022, imdb_rating:8.2, imdb_votes:750000, genres:["Action","Drama"], services:["Paramount+","Prime Video"], overview:"After thirty years, Maverick is still pushing the envelope as a top naval aviator, and must confront ghosts of his past when he leads TOP GUN's elite graduates on a mission.", poster:null},
+  {title:"Severance", type:"tv", year:2022, imdb_rating:8.7, imdb_votes:400000, genres:["Drama","Mystery","Sci-Fi"], services:["Apple TV+"], overview:"Mark leads a team of office workers whose memories have been surgically divided between their work and personal lives.", poster:null},
+  {title:"Poker Face", type:"tv", year:2023, imdb_rating:7.9, imdb_votes:100000, genres:["Comedy","Crime","Drama"], services:["Peacock"], overview:"Charlie Cale has an extraordinary ability to determine when someone is lying. She hits the road in her Plymouth Barracuda, encountering a new mystery in every town.", poster:null},
+  {title:"Everything Everywhere All at Once", type:"movie", year:2022, imdb_rating:7.8, imdb_votes:600000, genres:["Action","Adventure","Comedy"], services:["Max","Hulu"], overview:"A middle-aged Chinese immigrant is swept up into an insane adventure in which she alone can save existence by exploring other universes.", poster:null},
+  {title:"The Gentlemen", type:"movie", year:2019, imdb_rating:7.8, imdb_votes:400000, genres:["Action","Comedy","Crime"], services:["Netflix"], overview:"An American expat tries to sell off his highly profitable marijuana empire in London, triggering plots, schemes, bribery and blackmail.", poster:null},
+  {title:"Ted Lasso", type:"tv", year:2020, imdb_rating:8.8, imdb_votes:350000, genres:["Comedy","Drama","Sport"], services:["Apple TV+"], overview:"American college football coach Ted Lasso is hired to manage a British soccer team, despite having no experience coaching soccer.", poster:null},
+  {title:"Knives Out", type:"movie", year:2019, imdb_rating:7.9, imdb_votes:800000, genres:["Comedy","Crime","Drama"], services:["Prime Video"], overview:"A detective investigates the death of the patriarch of an eccentric, combative family.", poster:null},
+  {title:"Oppenheimer", type:"movie", year:2023, imdb_rating:8.3, imdb_votes:900000, genres:["Biography","Drama","History"], services:["Peacock"], overview:"The story of American scientist J. Robert Oppenheimer and his role in the development of the atomic bomb.", poster:null},
+  {title:"Yellowstone", type:"tv", year:2018, imdb_rating:8.6, imdb_votes:250000, genres:["Drama","Western"], services:["Paramount+","Peacock"], overview:"A ranching family in Montana faces off against others encroaching on their land.", poster:null},
+  {title:"Dune: Part Two", type:"movie", year:2024, imdb_rating:8.5, imdb_votes:600000, genres:["Action","Adventure","Sci-Fi"], services:["Max"], overview:"Paul Atreides unites with Chani and the Fremen while seeking revenge against the conspirators who destroyed his family.", poster:null},
+  {title:"Coco", type:"movie", year:2017, imdb_rating:8.4, imdb_votes:600000, genres:["Animation","Adventure","Family"], services:["Disney+"], overview:"Aspiring musician Miguel, confronted with his family's ancestral ban on music, enters the Land of the Dead to find his great-great-grandfather.", poster:null},
+  {title:"The Boys", type:"tv", year:2019, imdb_rating:8.6, imdb_votes:750000, genres:["Action","Comedy","Crime"], services:["Prime Video"], overview:"A group of vigilantes set out to take down corrupt superheroes who abuse their superpowers.", poster:null},
+  {title:"Spirited Away", type:"movie", year:2001, imdb_rating:8.6, imdb_votes:900000, language:"ja", genres:["Animation","Adventure","Family"], services:["Max"], overview:"During her family's move to the suburbs, a sullen 10-year-old girl wanders into a world ruled by gods, witches, and spirits.", poster:null},
+  {title:"Past Lives", type:"movie", year:2023, imdb_rating:7.8, imdb_votes:150000, genres:["Drama","Romance"], services:["Paramount+"], overview:"Nora and Hae Sung, two deeply connected childhood friends, are wrest apart after Nora's family emigrates from South Korea. Two decades later, they are reunited for one fateful week.", poster:null},
+  {title:"Arcane", type:"tv", year:2021, imdb_rating:9.0, imdb_votes:350000, genres:["Animation","Action","Adventure"], services:["Netflix"], overview:"Set in Utopian Piltover and the oppressed underground of Zaun, the story follows the origins of two iconic League of Legends champions and the power that will tear them apart.", poster:null},
+  {title:"CODA", type:"movie", year:2021, imdb_rating:8.0, imdb_votes:150000, genres:["Drama","Music"], services:["Apple TV+"], overview:"As a CODA (Child of Deaf Adults), Ruby is the only hearing person in her deaf family. When the family's fishing business is threatened, Ruby finds herself torn between pursuing her passion and her fear of abandoning her parents.", poster:null},
+  {title:"How to Train Your Dragon", type:"movie", year:2010, imdb_rating:8.1, imdb_votes:800000, genres:["Animation","Action","Adventure"], services:["Peacock","Netflix"], overview:"A hapless young Viking who aspires to hunt dragons becomes the unlikely friend of a young dragon himself, and learns there may be more to the creatures than he assumed.", poster:null}
+]};
+
+// Approximate Tomatometer scores for the sample titles (real data comes from pipeline.py + OMDb)
+const SAMPLE_RT = {"The Shawshank Redemption":89,"The Dark Knight":94,"Breaking Bad":96,"Inception":87,
+"Parasite":99,"The Bear":93,"Whiplash":94,"Andor":96,"Top Gun: Maverick":96,"Severance":97,
+"Poker Face":99,"Everything Everywhere All at Once":93,"The Gentlemen":75,"Ted Lasso":92,
+"Knives Out":97,"Oppenheimer":93,"Yellowstone":83,"Dune: Part Two":92,"Coco":97,"The Boys":90,
+"Spirited Away":96,"Past Lives":95,"Arcane":100,"CODA":94};
+// [rated, movie runtime in minutes OR tv episode count] — approximate, for the sample view only
+const SAMPLE_META = {"The Shawshank Redemption":["R",142],"The Dark Knight":["PG-13",152],
+"Breaking Bad":["TV-MA",62],"Inception":["PG-13",148],"Parasite":["R",132],"The Bear":["TV-MA",28],
+"Whiplash":["R",106],"Andor":["TV-14",24],"Top Gun: Maverick":["PG-13",130],"Severance":["TV-MA",19],
+"Poker Face":["TV-MA",22],"Everything Everywhere All at Once":["R",139],"The Gentlemen":["R",113],
+"Ted Lasso":["TV-MA",34],"Knives Out":["PG-13",130],"Oppenheimer":["R",180],"Yellowstone":["TV-MA",53],
+"Dune: Part Two":["PG-13",166],"Coco":["PG",105],"The Boys":["TV-MA",32],"Spirited Away":["PG",125],
+"Past Lives":["PG-13",105],"Arcane":["TV-14",18],"CODA":["PG-13",111],"How to Train Your Dragon":["PG",98]};
+SAMPLE_DATA.titles.forEach(t => {
+  t.rt = SAMPLE_RT[t.title] ?? null;
+  const m = SAMPLE_META[t.title];
+  t.rated = m ? m[0] : null;
+  t.runtime = (m && t.type === "movie") ? m[1] : null;
+  t.episodes = (m && t.type === "tv") ? m[1] : null;
+});
+
+let DATA = null;
+const activeServices = new Set();
+
+async function init() {
+  try {
+    const r = await fetch("data.json");
+    if (!r.ok) throw new Error();
+    DATA = await r.json();
+  } catch {
+    DATA = SAMPLE_DATA;
+    document.getElementById("sampleNote").style.display = "block";
+  }
+  buildFilters();
+  render();
+}
+
+function buildFilters() {
+  const services = [...new Set(DATA.titles.flatMap(t => t.services))].sort();
+  const chips = document.getElementById("serviceChips");
+  services.forEach(s => {
+    const c = document.createElement("div");
+    c.className = "chip on";
+    c.textContent = s;
+    activeServices.add(s);
+    c.onclick = () => { c.classList.toggle("on");
+      c.classList.contains("on") ? activeServices.add(s) : activeServices.delete(s);
+      render(); };
+    chips.appendChild(c);
+  });
+  updateGenreOptions();
+
+  // Language dropdown: ISO codes from the data, shown as full English names
+  const langName = new Intl.DisplayNames(["en"], { type: "language" });
+  const langs = [...new Set(DATA.titles.map(t => t.language || "en"))]
+    .map(code => { let n; try { n = langName.of(code); } catch { n = code; }
+      return [code, n || code]; })
+    .sort((a, b) => a[1].localeCompare(b[1]));
+  const lsel = document.getElementById("langSel");
+  langs.forEach(([code, name]) => {
+    const o = document.createElement("option"); o.value = code; o.textContent = name;
+    lsel.appendChild(o);
+  });
+  if (langs.some(([code]) => code === "en")) lsel.value = "en";  // default to English
+
+  ["genreSel","langSel","yearMin","yearMax","minRating","searchBox"].forEach(id =>
+    document.getElementById(id).addEventListener("input", render));
+
+  // Type switch rebuilds the genre list (movie and TV genres differ,
+  // e.g. TMDB's "Action & Adventure" exists only for TV)
+  document.getElementById("typeSel").addEventListener("input", () => {
+    updateGenreOptions();
+    render();
+  });
+
+  // Switching rating source swaps the min-rating scale (IMDb 0-10, RT 0-100)
+  document.getElementById("rateBy").addEventListener("change", () => {
+    const rt = document.getElementById("rateBy").value === "rt";
+    const inp = document.getElementById("minRating");
+    document.getElementById("minLabel").textContent = rt ? "Min RT score" : "Min IMDb rating";
+    inp.max = rt ? 100 : 10;
+    inp.step = rt ? 5 : 0.1;
+    inp.value = rt ? 60 : 6.0;
+    render();
+  });
+}
+
+function updateGenreOptions() {
+  // Only offer genres that actually have titles for the selected type
+  const type = document.getElementById("typeSel").value;
+  const sel = document.getElementById("genreSel");
+  const prev = sel.value;
+  const pool = DATA.titles.filter(t => type === "all" || t.type === type);
+  const genres = [...new Set(pool.flatMap(t => t.genres))].sort();
+  sel.innerHTML = '<option value="all">All genres</option>';
+  genres.forEach(g => { const o = document.createElement("option"); o.value = o.textContent = g; sel.appendChild(o); });
+  sel.value = genres.includes(prev) ? prev : "all";
+}
+
+function render() {
+  const type = document.getElementById("typeSel").value;
+  const genre = document.getElementById("genreSel").value;
+  const lang = document.getElementById("langSel").value;
+  const yMin = parseInt(document.getElementById("yearMin").value) || 0;
+  const yMax = parseInt(document.getElementById("yearMax").value) || 9999;
+  const rMin = parseFloat(document.getElementById("minRating").value) || 0;
+
+  const q = document.getElementById("searchBox").value.trim().toLowerCase();
+  const mode = document.getElementById("rateBy").value;
+  const score = t => mode === "rt" ? (t.rt ?? -1) : t.imdb_rating;
+
+  // When searching, match on title only and ignore all other filters —
+  // "where can I watch X?" should always find X.
+  const rows = (q
+    ? DATA.titles.filter(t => t.title.toLowerCase().includes(q))
+    : DATA.titles.filter(t =>
+        (type === "all" || t.type === type) &&
+        (genre === "all" || t.genres.includes(genre)) &&
+        (lang === "all" || (t.language || "en") === lang) &&
+        (t.year == null || (t.year >= yMin && t.year <= yMax)) &&
+        score(t) >= rMin &&
+        t.services.some(s => activeServices.has(s)))
+  ).sort((a, b) => score(b) - score(a) || b.imdb_votes - a.imdb_votes);
+
+  document.getElementById("count").textContent = `${rows.length.toLocaleString()} titles`;
+  const list = document.getElementById("list");
+  list.innerHTML = "";
+  if (!rows.length) {
+    list.innerHTML = q
+      ? '<div class="empty">No match — it may not be streaming on any of the included services.</div>'
+      : '<div class="empty">No titles match your filters.</div>';
+    return;
+  }
+
+  const frag = document.createDocumentFragment();
+  rows.slice(0, 300).forEach(t => {
+    const row = document.createElement("div");
+    row.className = "row";
+    const svcs = (q ? t.services : t.services.filter(s => activeServices.has(s))).map(s =>
+      `<div class="svc" style="background:${SERVICE_COLORS[s] || "#444"}">${esc(s)}</div>`).join("");
+    const poster = t.poster
+      ? `<img class="poster" loading="lazy" src="${esc(t.poster)}" alt="">`
+      : `<div class="noposter">${esc(t.title[0] || "?")}</div>`;
+    const extras = [];
+    if (t.rated) extras.push(t.rated);
+    if (t.type === "movie" && t.runtime) extras.push(fmtRuntime(t.runtime));
+    if (t.type === "tv" && t.episodes) extras.push(t.episodes + (t.episodes === 1 ? " episode" : " episodes"));
+    const meta = [...t.genres, ...extras].join(" · ");
+    row.innerHTML = `
+      <div class="services">${svcs}</div>
+      ${poster}
+      <div class="rating"><div class="score">${t.imdb_rating.toFixed(1)}</div>
+        <div class="votes">${fmtVotes(t.imdb_votes)} votes</div>
+        ${t.rt != null
+          ? `<div class="rt ${t.rt >= 60 ? "fresh" : "rotten"}">&#127813; ${t.rt}%</div>`
+          : '<div class="rt none">&#127813; —</div>'}</div>
+      <div class="year">${t.year ?? "—"}</div>
+      <div class="info">
+        <div class="title">${esc(t.title)}${t.type === "tv" ? '<span class="badge">TV</span>' : '<span class="badge movie">MOVIE</span>'}</div>
+        <div class="genres">${esc(meta)}</div>
+        <div class="desc">${esc(t.overview)}</div>
+      </div>`;
+    frag.appendChild(row);
+  });
+  list.appendChild(frag);
+  if (rows.length > 300) {
+    const more = document.createElement("div");
+    more.className = "empty";
+    more.textContent = `Showing top 300 of ${rows.length.toLocaleString()} — tighten filters to see more.`;
+    list.appendChild(more);
+  }
+}
+
+const esc = s => String(s).replace(/[&<>"']/g, c => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]));
+const fmtVotes = v => v >= 1e6 ? (v/1e6).toFixed(1) + "M" : v >= 1e3 ? Math.round(v/1e3) + "K" : v;
+const fmtRuntime = m => m >= 60 ? Math.floor(m/60) + "h" + (m % 60 ? " " + (m % 60) + "m" : "") : m + "m";
+
+init();
+</script>
+</body>
+</html>

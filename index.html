@@ -66,6 +66,7 @@
     border-radius: 4px; padding: 1px 5px; margin-left: 8px; vertical-align: 2px;
   }
   .info .title .badge.movie { color: #f28c28; border-color: #f28c28; }
+  .info .title .badge.doc { color: #2fbf71; border-color: #2fbf71; }
   .info .genres { font-size: 12px; color: var(--muted); margin: 2px 0 4px; }
   .info .desc {
     font-size: 13px; color: #b9c2d4; display: -webkit-box;
@@ -374,7 +375,7 @@ function render() {
           : '<div class="rt none">&#127813; —</div>'}</div>
       <div class="year">${t.year ?? "—"}</div>
       <div class="info">
-        <div class="title">${esc(t.title)}${t.year ? `<span class="yearinline"> (${t.year})</span>` : ""}${t.type === "tv" ? '<span class="badge">TV</span>' : '<span class="badge movie">MOVIE</span>'}</div>
+        <div class="title">${esc(t.title)}${t.year ? `<span class="yearinline"> (${t.year})</span>` : ""}${t.type === "tv" ? '<span class="badge">TV</span>' : (t.genres.includes("Documentary") ? '<span class="badge doc">DOCUMENTARY</span>' : '<span class="badge movie">MOVIE</span>')}</div>
         <div class="genres">${esc(meta)}</div>
         <div class="desc">${esc(t.overview)}</div>
       </div>`;

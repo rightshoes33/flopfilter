@@ -30,6 +30,6 @@ jobs:
         run: |
           git config user.name "flopfilter-bot"
           git config user.email "actions@users.noreply.github.com"
-          git add data.json cache.db
+          git add -A
           git commit -m "Nightly data refresh" || echo "Nothing changed"
           git push

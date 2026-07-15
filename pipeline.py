@@ -379,6 +379,13 @@ def main():
     print(f"\nWrote {len(out):,} titles to {OUT_FILE}")
     db.close()
 
+    # Regenerate static SEO landing pages from the fresh data
+    try:
+        import generate_pages
+        generate_pages.build(OUT_FILE)
+    except ImportError:
+        print("generate_pages.py not found - skipping landing pages")
+
 
 if __name__ == "__main__":
     main()

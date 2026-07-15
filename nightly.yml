@@ -1,0 +1,35 @@
+name: Nightly data refresh
+
+on:
+  schedule:
+    - cron: "0 8 * * *"    # 8:00 UTC = 3am ET / midnight PT, daily
+  workflow_dispatch: {}     # lets you trigger it manually from the Actions tab
+
+jobs:
+  refresh:
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v5
+
+      - uses: actions/setup-python@v6
+        with:
+          python-version: "3.12"
+
+      - name: Install dependencies
+        run: pip install requests
+
+      - name: Run pipeline
+        env:
+          TMDB_API_KEY: ${{ secrets.TMDB_API_KEY }}
+          OMDB_API_KEY: ${{ secrets.OMDB_API_KEY }}
+        run: python pipeline.py
+
+      - name: Commit refreshed data
+        run: |
+          git config user.name "flopfilter-bot"
+          git config user.email "actions@users.noreply.github.com"
+          git add -A
+          git commit -m "Nightly data refresh" || echo "Nothing changed"
+          git push

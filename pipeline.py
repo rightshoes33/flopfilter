@@ -148,8 +148,12 @@ def cache_init():
     )
     db.execute(
         "CREATE TABLE IF NOT EXISTS omdb_info "
-        "(imdb_id TEXT PRIMARY KEY, rt INTEGER, rated TEXT, runtime INTEGER)"
+        "(imdb_id TEXT PRIMARY KEY, rt INTEGER, rated TEXT, runtime INTEGER, mc INTEGER)"
     )
+    try:  # migrate older cache.db files that lack the Metacritic column
+        db.execute("ALTER TABLE omdb_info ADD COLUMN mc INTEGER")
+    except sqlite3.OperationalError:
+        pass
     db.execute(
         "CREATE TABLE IF NOT EXISTS tv_episodes (tmdb_id INTEGER PRIMARY KEY, episodes INTEGER)"
     )
@@ -192,7 +196,7 @@ class OmdbError(Exception):
 
 
 def fetch_omdb_info(imdb_id):
-    """(imdb_id, rt, rated, runtime_minutes) via OMDb. rt=-1 when no RT score exists."""
+    """(imdb_id, rt, rated, runtime_minutes, metascore) via OMDb. -1 = no score exists."""
     for attempt in range(3):
         try:
             r = session.get(OMDB_URL, params={"i": imdb_id, "apikey": OMDB_API_KEY}, timeout=30)
@@ -210,7 +214,7 @@ def fetch_omdb_info(imdb_id):
     try:
         data = r.json()
     except ValueError:
-        return imdb_id, -1, None, None   # OMDb occasionally returns broken JSON - skip it
+        return imdb_id, -1, None, None, -1   # OMDb occasionally returns broken JSON - skip it
     rt = -1
     for entry in data.get("Ratings", []):
         if entry.get("Source") == "Rotten Tomatoes":
@@ -227,7 +231,9 @@ def fetch_omdb_info(imdb_id):
             runtime = int(r_str[:-4].replace(",", ""))
         except ValueError:
             pass
-    return imdb_id, rt, rated, runtime
+    ms = data.get("Metascore") or ""
+    mc = int(ms) if ms.isdigit() else -1
+    return imdb_id, rt, rated, runtime, mc
 
 
 def resolve_omdb_info(db, imdb_ids):
@@ -239,8 +245,8 @@ def resolve_omdb_info(db, imdb_ids):
 
     # Sanity-check the key with one known title before doing anything else
     try:
-        _, test_rt, test_rated, test_run = fetch_omdb_info("tt0111161")  # Shawshank
-        print(f"  OMDb key OK (test: RT={test_rt}%, rated {test_rated}, {test_run} min)")
+        _, test_rt, test_rated, test_run, test_mc = fetch_omdb_info("tt0111161")  # Shawshank
+        print(f"  OMDb key OK (test: RT={test_rt}%, MC={test_mc}, rated {test_rated}, {test_run} min)")
     except OmdbError as e:
         msg = str(e)
         if "invalid" in msg.lower():
@@ -252,21 +258,22 @@ def resolve_omdb_info(db, imdb_ids):
             print(f"  OMDb says: {msg} - daily limit used up, will resume next run.")
         return {}
 
-    cached = {row[0]: (row[1], row[2], row[3]) for row in
-              db.execute("SELECT imdb_id, rt, rated, runtime FROM omdb_info")}
-    missing = [i for i in imdb_ids if i not in cached]
-    if missing and not cached:
-        print("  Note: new fields (rated/runtime) require a one-time refetch of all titles")
+    cached = {row[0]: (row[1], row[2], row[3], row[4]) for row in
+              db.execute("SELECT imdb_id, rt, rated, runtime, mc FROM omdb_info")}
+    # rows with mc=NULL were cached before the Metacritic column existed - refetch those too
+    missing = [i for i in imdb_ids if i not in cached or cached[i][3] is None]
+    if any(i in cached for i in missing):
+        print("  Note: refetching previously cached titles once to pick up Metacritic scores")
     print(f"OMDb info: {len(cached):,} cached, {len(missing):,} to fetch")
     done = 0
     try:
         for start in range(0, len(missing), 200):
             chunk = missing[start:start + 200]
             with ThreadPoolExecutor(max_workers=5) as pool:
-                for imdb_id, rt, rated, runtime in pool.map(fetch_omdb_info, chunk):
-                    cached[imdb_id] = (rt, rated, runtime)
-                    db.execute("INSERT OR REPLACE INTO omdb_info VALUES (?,?,?,?)",
-                               (imdb_id, rt, rated, runtime))
+                for imdb_id, rt, rated, runtime, mc in pool.map(fetch_omdb_info, chunk):
+                    cached[imdb_id] = (rt, rated, runtime, mc)
+                    db.execute("INSERT OR REPLACE INTO omdb_info VALUES (?,?,?,?,?)",
+                               (imdb_id, rt, rated, runtime, mc))
             db.commit()
             done += len(chunk)
             if done % 1000 == 0:
@@ -363,10 +370,11 @@ def main():
     # Attach OMDb data: RT score, content rating, movie runtime (needs OMDB_API_KEY)
     omdb = resolve_omdb_info(db, [t["imdb_id"] for t in out])
     for t in out:
-        rt, rated, runtime = omdb.get(t["imdb_id"], (None, None, None))
+        rt, rated, runtime, mc = omdb.get(t["imdb_id"], (None, None, None, None))
         t["rt"] = rt if rt is not None and rt >= 0 else None
         t["rated"] = rated or None
         t["runtime"] = runtime if t["type"] == "movie" else None
+        t["mc"] = mc if mc is not None and mc >= 0 else None
 
     # Attach TV episode counts (TMDB details, cached)
     eps = resolve_episode_counts(db, [t["tmdb_id"] for t in out if t["type"] == "tv"])

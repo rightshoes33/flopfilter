@@ -58,6 +58,11 @@
   .rt.fresh { color: #fa5342; }
   .rt.rotten { color: #7bc043; }
   .rt.none { color: var(--muted); font-weight: 400; }
+  .rating .mc { font-size: 12px; font-weight: 600; margin-top: 2px; }
+  .mc.good { color: #66cc33; }
+  .mc.mixed { color: #ffcc33; }
+  .mc.bad { color: #f45b5b; }
+  .mc.none { color: var(--muted); font-weight: 400; }
   .year { color: var(--muted); font-size: 15px; text-align: center; }
   .yearinline { color: var(--muted); font-weight: 400; display: none; }
   .info .title { font-weight: 600; font-size: 16px; }
@@ -152,6 +157,7 @@
     <select id="rateBy">
       <option value="imdb" selected>IMDb</option>
       <option value="rt">Rotten Tomatoes</option>
+      <option value="mc">Metacritic</option>
     </select>
   </div>
   <div>
@@ -239,8 +245,13 @@ const SAMPLE_META = {"The Shawshank Redemption":["R",142],"The Dark Knight":["PG
 "Ted Lasso":["TV-MA",34],"Knives Out":["PG-13",130],"Oppenheimer":["R",180],"Yellowstone":["TV-MA",53],
 "Dune: Part Two":["PG-13",166],"Coco":["PG",105],"The Boys":["TV-MA",32],"Spirited Away":["PG",125],
 "Past Lives":["PG-13",105],"Arcane":["TV-14",18],"CODA":["PG-13",111],"How to Train Your Dragon":["PG",98]};
+const SAMPLE_MC = {"The Shawshank Redemption":82,"The Dark Knight":84,"Breaking Bad":87,"Inception":74,
+"Parasite":97,"Whiplash":89,"Top Gun: Maverick":78,"Oppenheimer":90,"Dune: Part Two":79,"Coco":81,
+"Spirited Away":96,"Past Lives":94,"Everything Everywhere All at Once":81,"CODA":72,"Knives Out":82,
+"The Gentlemen":51,"How to Train Your Dragon":75};
 SAMPLE_DATA.titles.forEach(t => {
   t.rt = SAMPLE_RT[t.title] ?? null;
+  t.mc = SAMPLE_MC[t.title] ?? null;
   const m = SAMPLE_META[t.title];
   t.rated = m ? m[0] : null;
   t.runtime = (m && t.type === "movie") ? m[1] : null;
@@ -301,14 +312,16 @@ function buildFilters() {
     render();
   });
 
-  // Switching rating source swaps the min-rating scale (IMDb 0-10, RT 0-100)
+  // Switching rating source swaps the min-rating scale (IMDb 0-10, RT/MC 0-100)
   document.getElementById("rateBy").addEventListener("change", () => {
-    const rt = document.getElementById("rateBy").value === "rt";
+    const mode = document.getElementById("rateBy").value;
+    const pct = mode !== "imdb";
     const inp = document.getElementById("minRating");
-    document.getElementById("minLabel").textContent = rt ? "Min RT score" : "Min IMDb rating";
-    inp.max = rt ? 100 : 10;
-    inp.step = rt ? 5 : 0.1;
-    inp.value = rt ? 60 : 6.0;
+    document.getElementById("minLabel").textContent =
+      mode === "rt" ? "Min RT score" : mode === "mc" ? "Min Metascore" : "Min IMDb rating";
+    inp.max = pct ? 100 : 10;
+    inp.step = pct ? 5 : 0.1;
+    inp.value = pct ? 60 : 6.0;
     render();
   });
 }
@@ -335,7 +348,7 @@ function render() {
 
   const q = document.getElementById("searchBox").value.trim().toLowerCase();
   const mode = document.getElementById("rateBy").value;
-  const score = t => mode === "rt" ? (t.rt ?? -1) : t.imdb_rating;
+  const score = t => mode === "rt" ? (t.rt ?? -1) : mode === "mc" ? (t.mc ?? -1) : t.imdb_rating;
 
   // When searching, match on title only and ignore all other filters —
   // "where can I watch X?" should always find X.
@@ -348,7 +361,7 @@ function render() {
         (t.year == null || (t.year >= yMin && t.year <= yMax)) &&
         score(t) >= rMin &&
         t.services.some(s => activeServices.has(s)))
-  ).sort((a, b) => score(b) - score(a) || b.imdb_votes - a.imdb_votes);
+  ).sort((a, b) => score(b) - score(a) || b.imdb_rating - a.imdb_rating || b.imdb_votes - a.imdb_votes);
 
   document.getElementById("count").textContent = `${rows.length.toLocaleString()} titles`;
   const list = document.getElementById("list");
@@ -381,7 +394,10 @@ function render() {
         <div class="votes">${fmtVotes(t.imdb_votes)} votes</div>
         ${t.rt != null
           ? `<div class="rt ${t.rt >= 60 ? "fresh" : "rotten"}">&#127813; ${t.rt}%</div>`
-          : '<div class="rt none">&#127813; —</div>'}</div>
+          : '<div class="rt none">&#127813; —</div>'}
+        ${t.mc != null
+          ? `<div class="mc ${t.mc >= 61 ? "good" : t.mc >= 40 ? "mixed" : "bad"}">MC ${t.mc}</div>`
+          : '<div class="mc none">MC —</div>'}</div>
       <div class="year">${t.year ?? "—"}</div>
       <div class="info">
         <div class="title">${esc(t.title)}${t.year ? `<span class="yearinline"> (${t.year})</span>` : ""}${t.type === "tv" ? '<span class="badge">TV</span>' : (t.genres.includes("Documentary") ? '<span class="badge doc">DOCUMENTARY</span>' : '<span class="badge movie">MOVIE</span>')}</div>

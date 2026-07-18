@@ -45,7 +45,8 @@ border-radius:12px;padding:14px;margin-bottom:10px}
 .item img{width:64px;height:96px;object-fit:cover;border-radius:8px;background:var(--panel2)}
 .t{font-weight:600;font-size:16px}.t .yr{color:var(--muted);font-weight:400}
 .scores{font-size:13px;margin:2px 0}.scores .imdb{color:var(--accent);font-weight:700}
-.scores .rt{color:#fa5342;font-weight:600}.scores .meta{color:var(--muted)}
+.scores .rt{color:#fa5342;font-weight:600}.scores .mcv{color:#66cc33;font-weight:600}
+.scores .meta{color:var(--muted)}
 .ov{font-size:13px;color:#b9c2d4;margin-top:4px}
 .also{margin:30px 0 0}.also h3{font-size:15px;margin-bottom:8px}
 .also a{display:inline-block;color:var(--accent2);text-decoration:none;font-size:13px;
@@ -88,6 +89,8 @@ def item_html(rank, t):
     scores = [f'<span class="imdb">&#9733; {t["imdb_rating"]:.1f} IMDb</span>']
     if t.get("rt") is not None:
         scores.append(f'<span class="rt">&#127813; {t["rt"]}%</span>')
+    if t.get("mc") is not None:
+        scores.append(f'<span class="mcv">MC {t["mc"]}</span>')
     meta = []
     if t.get("rated"):
         meta.append(esc(t["rated"]))

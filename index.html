@@ -263,7 +263,9 @@ const activeServices = new Set();
 
 async function init() {
   try {
-    const r = await fetch("data.json");
+    // no-cache = always revalidate with the server, so visitors get fresh data
+    // after the nightly refresh (304 + cached copy when nothing changed)
+    const r = await fetch("data.json", { cache: "no-cache" });
     if (!r.ok) throw new Error();
     DATA = await r.json();
   } catch {

@@ -148,14 +148,19 @@ def cache_init():
     )
     db.execute(
         "CREATE TABLE IF NOT EXISTS omdb_info "
-        "(imdb_id TEXT PRIMARY KEY, rt INTEGER, rated TEXT, runtime INTEGER, mc INTEGER)"
+        "(imdb_id TEXT PRIMARY KEY, rt INTEGER, rated TEXT, runtime INTEGER, mc INTEGER, "
+        "actors TEXT, director TEXT, awards TEXT, box_office TEXT)"
     )
-    try:  # migrate older cache.db files that lack the Metacritic column
-        db.execute("ALTER TABLE omdb_info ADD COLUMN mc INTEGER")
-    except sqlite3.OperationalError:
-        pass
+    # migrate older cache.db files that lack newer columns
+    for col in ("mc INTEGER", "actors TEXT", "director TEXT", "awards TEXT", "box_office TEXT"):
+        try:
+            db.execute(f"ALTER TABLE omdb_info ADD COLUMN {col}")
+        except sqlite3.OperationalError:
+            pass
     db.execute(
-        "CREATE TABLE IF NOT EXISTS tv_episodes (tmdb_id INTEGER PRIMARY KEY, episodes INTEGER)"
+        "CREATE TABLE IF NOT EXISTS tmdb_extra "
+        "(kind TEXT, tmdb_id INTEGER, episodes INTEGER, trailer TEXT, "
+        "PRIMARY KEY (kind, tmdb_id))"
     )
     return db
 
@@ -195,8 +200,16 @@ class OmdbError(Exception):
     """OMDb rejected the request (invalid/unactivated key, or daily limit)."""
 
 
+# column order in the omdb_info table (after imdb_id)
+OMDB_FIELDS = ("rt", "rated", "runtime", "mc", "actors", "director", "awards", "box_office")
+
+# not-yet-fetched rows have actors=NULL; fetched-but-absent values are stored as ""
+_OMDB_EMPTY = {"rt": -1, "rated": "", "runtime": None, "mc": -1,
+               "actors": "", "director": "", "awards": "", "box_office": ""}
+
+
 def fetch_omdb_info(imdb_id):
-    """(imdb_id, rt, rated, runtime_minutes, metascore) via OMDb. -1 = no score exists."""
+    """(imdb_id, info_dict) via OMDb. rt/mc use -1 and text fields use '' for 'none'."""
     for attempt in range(3):
         try:
             r = session.get(OMDB_URL, params={"i": imdb_id, "apikey": OMDB_API_KEY}, timeout=30)
@@ -211,29 +224,36 @@ def fetch_omdb_info(imdb_id):
         except ValueError:
             msg = ""
         raise OmdbError(msg or "401 Unauthorized")
+    info = dict(_OMDB_EMPTY)
     try:
         data = r.json()
     except ValueError:
-        return imdb_id, -1, None, None, -1   # OMDb occasionally returns broken JSON - skip it
-    rt = -1
+        return imdb_id, info   # OMDb occasionally returns broken JSON - skip it
+
+    def clean(field):
+        v = data.get(field) or ""
+        return "" if v == "N/A" else v
+
     for entry in data.get("Ratings", []):
         if entry.get("Source") == "Rotten Tomatoes":
             try:
-                rt = int(entry["Value"].rstrip("%"))
+                info["rt"] = int(entry["Value"].rstrip("%"))
             except ValueError:
                 pass
-    rated = data.get("Rated") or ""
-    rated = None if rated in ("", "N/A") else rated
-    runtime = None
+    info["rated"] = clean("Rated")
     r_str = data.get("Runtime") or ""
     if r_str.endswith(" min"):
         try:
-            runtime = int(r_str[:-4].replace(",", ""))
+            info["runtime"] = int(r_str[:-4].replace(",", ""))
         except ValueError:
             pass
     ms = data.get("Metascore") or ""
-    mc = int(ms) if ms.isdigit() else -1
-    return imdb_id, rt, rated, runtime, mc
+    info["mc"] = int(ms) if ms.isdigit() else -1
+    info["actors"] = clean("Actors")
+    info["director"] = clean("Director")
+    info["awards"] = clean("Awards")
+    info["box_office"] = clean("BoxOffice")
+    return imdb_id, info
 
 
 def resolve_omdb_info(db, imdb_ids):
@@ -245,8 +265,9 @@ def resolve_omdb_info(db, imdb_ids):
 
     # Sanity-check the key with one known title before doing anything else
     try:
-        _, test_rt, test_rated, test_run, test_mc = fetch_omdb_info("tt0111161")  # Shawshank
-        print(f"  OMDb key OK (test: RT={test_rt}%, MC={test_mc}, rated {test_rated}, {test_run} min)")
+        _, test = fetch_omdb_info("tt0111161")  # Shawshank
+        print(f"  OMDb key OK (test: RT={test['rt']}%, MC={test['mc']}, "
+              f"rated {test['rated']}, dir. {test['director']})")
     except OmdbError as e:
         msg = str(e)
         if "invalid" in msg.lower():
@@ -258,22 +279,24 @@ def resolve_omdb_info(db, imdb_ids):
             print(f"  OMDb says: {msg} - daily limit used up, will resume next run.")
         return {}
 
-    cached = {row[0]: (row[1], row[2], row[3], row[4]) for row in
-              db.execute("SELECT imdb_id, rt, rated, runtime, mc FROM omdb_info")}
-    # rows with mc=NULL were cached before the Metacritic column existed - refetch those too
-    missing = [i for i in imdb_ids if i not in cached or cached[i][3] is None]
+    cols = ", ".join(OMDB_FIELDS)
+    cached = {row[0]: dict(zip(OMDB_FIELDS, row[1:])) for row in
+              db.execute(f"SELECT imdb_id, {cols} FROM omdb_info")}
+    # rows with actors=NULL were cached before the newer columns existed - refetch those
+    missing = [i for i in imdb_ids if i not in cached or cached[i]["actors"] is None]
     if any(i in cached for i in missing):
-        print("  Note: refetching previously cached titles once to pick up Metacritic scores")
+        print("  Note: refetching previously cached titles once to pick up cast/director/awards")
     print(f"OMDb info: {len(cached):,} cached, {len(missing):,} to fetch")
     done = 0
     try:
         for start in range(0, len(missing), 200):
             chunk = missing[start:start + 200]
             with ThreadPoolExecutor(max_workers=5) as pool:
-                for imdb_id, rt, rated, runtime, mc in pool.map(fetch_omdb_info, chunk):
-                    cached[imdb_id] = (rt, rated, runtime, mc)
-                    db.execute("INSERT OR REPLACE INTO omdb_info VALUES (?,?,?,?,?)",
-                               (imdb_id, rt, rated, runtime, mc))
+                for imdb_id, info in pool.map(fetch_omdb_info, chunk):
+                    cached[imdb_id] = info
+                    db.execute(
+                        "INSERT OR REPLACE INTO omdb_info VALUES (?,?,?,?,?,?,?,?,?)",
+                        (imdb_id, *(info[f] for f in OMDB_FIELDS)))
             db.commit()
             done += len(chunk)
             if done % 1000 == 0:
@@ -285,24 +308,35 @@ def resolve_omdb_info(db, imdb_ids):
     return cached
 
 
-def fetch_episode_count(tmdb_id):
+def fetch_tmdb_extra(kind, tmdb_id):
+    """(kind, tmdb_id, episodes, trailer_youtube_key) via TMDB details+videos."""
     try:
-        return tmdb_id, tmdb_get(f"/tv/{tmdb_id}").get("number_of_episodes") or 0
+        data = tmdb_get(f"/{kind}/{tmdb_id}", append_to_response="videos")
     except requests.HTTPError:
-        return tmdb_id, 0
+        return kind, tmdb_id, 0, ""
+    episodes = data.get("number_of_episodes") or 0
+    trailer = ""
+    videos = [v for v in data.get("videos", {}).get("results", [])
+              if v.get("site") == "YouTube" and v.get("type") == "Trailer"]
+    if videos:
+        # prefer official trailers, then most recent
+        videos.sort(key=lambda v: (not v.get("official"), v.get("published_at") or ""))
+        trailer = videos[0].get("key") or ""
+    return kind, tmdb_id, episodes, trailer
 
 
-def resolve_episode_counts(db, tmdb_ids):
-    """{tmdb_id: episode_count} for TV shows, via TMDB details. Cached."""
-    cached = dict(db.execute("SELECT tmdb_id, episodes FROM tv_episodes").fetchall())
-    missing = [t for t in tmdb_ids if t not in cached]
-    print(f"TV episode counts: {len(cached):,} cached, {len(missing):,} to fetch")
+def resolve_tmdb_extra(db, pairs):
+    """{(kind, tmdb_id): (episodes, trailer_key)} via TMDB details. Cached."""
+    cached = {(k, t): (e, tr) for k, t, e, tr in
+              db.execute("SELECT kind, tmdb_id, episodes, trailer FROM tmdb_extra")}
+    missing = [p for p in pairs if p not in cached]
+    print(f"TMDB details (episodes/trailers): {len(cached):,} cached, {len(missing):,} to fetch")
     with ThreadPoolExecutor(max_workers=10) as pool:
-        futures = [pool.submit(fetch_episode_count, t) for t in missing]
+        futures = [pool.submit(fetch_tmdb_extra, k, t) for k, t in missing]
         for i, fut in enumerate(as_completed(futures), 1):
-            tid, eps = fut.result()
-            cached[tid] = eps
-            db.execute("INSERT OR REPLACE INTO tv_episodes VALUES (?,?)", (tid, eps))
+            k, t, eps, trailer = fut.result()
+            cached[(k, t)] = (eps, trailer)
+            db.execute("INSERT OR REPLACE INTO tmdb_extra VALUES (?,?,?,?)", (k, t, eps, trailer))
             if i % 500 == 0:
                 db.commit()
                 print(f"  fetched {i:,}/{len(missing):,}")
@@ -370,16 +404,22 @@ def main():
     # Attach OMDb data: RT score, content rating, movie runtime (needs OMDB_API_KEY)
     omdb = resolve_omdb_info(db, [t["imdb_id"] for t in out])
     for t in out:
-        rt, rated, runtime, mc = omdb.get(t["imdb_id"], (None, None, None, None))
-        t["rt"] = rt if rt is not None and rt >= 0 else None
-        t["rated"] = rated or None
-        t["runtime"] = runtime if t["type"] == "movie" else None
-        t["mc"] = mc if mc is not None and mc >= 0 else None
+        info = omdb.get(t["imdb_id"]) or _OMDB_EMPTY
+        t["rt"] = info["rt"] if info["rt"] is not None and info["rt"] >= 0 else None
+        t["rated"] = info["rated"] or None
+        t["runtime"] = info["runtime"] if t["type"] == "movie" else None
+        t["mc"] = info["mc"] if info["mc"] is not None and info["mc"] >= 0 else None
+        t["actors"] = info["actors"] or None
+        t["director"] = info["director"] or None
+        t["awards"] = info["awards"] or None
+        t["box_office"] = (info["box_office"] or None) if t["type"] == "movie" else None
 
-    # Attach TV episode counts (TMDB details, cached)
-    eps = resolve_episode_counts(db, [t["tmdb_id"] for t in out if t["type"] == "tv"])
+    # Attach episode counts + trailer links (TMDB details, cached)
+    extra = resolve_tmdb_extra(db, [(t["type"], t["tmdb_id"]) for t in out])
     for t in out:
-        t["episodes"] = (eps.get(t["tmdb_id"]) or None) if t["type"] == "tv" else None
+        eps, trailer = extra.get((t["type"], t["tmdb_id"]), (None, None))
+        t["episodes"] = (eps or None) if t["type"] == "tv" else None
+        t["trailer"] = trailer or None
 
     out.sort(key=lambda t: (-t["imdb_rating"], -t["imdb_votes"]))
     with open(OUT_FILE, "w", encoding="utf-8") as f:

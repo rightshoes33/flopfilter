@@ -39,7 +39,41 @@
     display: grid; grid-template-columns: 130px 72px 86px 60px 1fr;
     gap: 16px; align-items: center; padding: 12px 14px; border-radius: 12px;
     background: var(--panel); border: 1px solid var(--border); margin-bottom: 10px;
+    cursor: pointer;
   }
+  .row:hover { border-color: var(--accent2); }
+  .overlay {
+    position: fixed; inset: 0; background: rgba(0,0,0,.75); z-index: 50;
+    display: flex; align-items: center; justify-content: center; padding: 20px;
+  }
+  .modal {
+    background: var(--panel); border: 1px solid var(--border); border-radius: 16px;
+    max-width: 680px; width: 100%; max-height: 88vh; overflow-y: auto; padding: 26px;
+    position: relative;
+  }
+  .modal .close {
+    position: absolute; top: 12px; right: 16px; background: none; border: none;
+    color: var(--muted); font-size: 26px; cursor: pointer; line-height: 1;
+  }
+  .modal .close:hover { color: var(--text); }
+  .mhead { display: flex; gap: 18px; }
+  .mhead img { width: 120px; height: 180px; object-fit: cover; border-radius: 10px; background: var(--panel2); }
+  .mtitle { font-size: 20px; font-weight: 700; }
+  .mtitle .yr { color: var(--muted); font-weight: 400; }
+  .mscores { margin: 8px 0; font-size: 14px; }
+  .mscores .imdb { color: var(--accent); font-weight: 700; }
+  .mmeta { color: var(--muted); font-size: 13px; margin-bottom: 8px; }
+  .msvc { display: flex; gap: 6px; flex-wrap: wrap; margin-top: 8px; }
+  .trailerbtn {
+    display: inline-block; margin-top: 12px; background: #cc0000; color: #fff;
+    text-decoration: none; font-weight: 600; font-size: 14px;
+    border-radius: 8px; padding: 8px 16px;
+  }
+  .trailerbtn:hover { filter: brightness(1.15); }
+  .mbody { margin-top: 16px; font-size: 14px; line-height: 1.6; }
+  .mfacts { margin-top: 14px; font-size: 13px; }
+  .mfacts div { margin-bottom: 5px; }
+  .mfacts b { color: var(--muted); font-weight: 600; margin-right: 6px; }
   .services { display: flex; flex-direction: column; gap: 4px; }
   .svc {
     font-size: 11px; font-weight: 600; text-align: center; border-radius: 6px;
@@ -173,6 +207,13 @@
 
 <div class="list" id="list"></div>
 
+<div id="overlay" class="overlay" style="display:none">
+  <div class="modal" id="modalBox">
+    <button class="close" id="modalClose" aria-label="Close">&times;</button>
+    <div id="modalBody"></div>
+  </div>
+</div>
+
 <footer>
   Browse the rankings:
   <a href="/netflix/">Netflix</a> &middot;
@@ -249,9 +290,23 @@ const SAMPLE_MC = {"The Shawshank Redemption":82,"The Dark Knight":84,"Breaking 
 "Parasite":97,"Whiplash":89,"Top Gun: Maverick":78,"Oppenheimer":90,"Dune: Part Two":79,"Coco":81,
 "Spirited Away":96,"Past Lives":94,"Everything Everywhere All at Once":81,"CODA":72,"Knives Out":82,
 "The Gentlemen":51,"How to Train Your Dragon":75};
+// [actors, director, awards, box office] for a few sample titles (full data comes from the pipeline)
+const SAMPLE_EXTRA = {
+"The Shawshank Redemption":["Tim Robbins, Morgan Freeman, Bob Gunton","Frank Darabont","Nominated for 7 Oscars. 21 wins & 43 nominations total","$28,767,189"],
+"The Dark Knight":["Christian Bale, Heath Ledger, Aaron Eckhart","Christopher Nolan","Won 2 Oscars. 164 wins & 165 nominations total","$534,987,076"],
+"Breaking Bad":["Bryan Cranston, Aaron Paul, Anna Gunn","N/A","Won 16 Primetime Emmys. 169 wins & 269 nominations total",null],
+"Parasite":["Song Kang-ho, Lee Sun-kyun, Cho Yeo-jeong","Bong Joon Ho","Won 4 Oscars. 314 wins & 271 nominations total","$53,369,749"],
+"Inception":["Leonardo DiCaprio, Joseph Gordon-Levitt, Elliot Page","Christopher Nolan","Won 4 Oscars. 159 wins & 220 nominations total","$292,587,330"],
+"Oppenheimer":["Cillian Murphy, Emily Blunt, Matt Damon","Christopher Nolan","Won 7 Oscars. 355 wins & 393 nominations total","$330,078,895"]};
 SAMPLE_DATA.titles.forEach(t => {
   t.rt = SAMPLE_RT[t.title] ?? null;
   t.mc = SAMPLE_MC[t.title] ?? null;
+  const x = SAMPLE_EXTRA[t.title];
+  t.actors = x ? x[0] : null;
+  t.director = x && x[1] !== "N/A" ? x[1] : null;
+  t.awards = x ? x[2] : null;
+  t.box_office = (x && t.type === "movie") ? x[3] : null;
+  t.trailer = null;  // real trailer links come from the pipeline
   const m = SAMPLE_META[t.title];
   t.rated = m ? m[0] : null;
   t.runtime = (m && t.type === "movie") ? m[1] : null;
@@ -406,6 +461,7 @@ function render() {
         <div class="genres">${esc(meta)}</div>
         <div class="desc">${esc(t.overview)}</div>
       </div>`;
+    row.addEventListener("click", () => openModal(t));
     frag.appendChild(row);
   });
   list.appendChild(frag);
@@ -416,6 +472,48 @@ function render() {
     list.appendChild(more);
   }
 }
+
+function openModal(t) {
+  const scores = [`<span class="imdb">&#9733; ${t.imdb_rating.toFixed(1)} IMDb</span> <span style="color:var(--muted)">(${fmtVotes(t.imdb_votes)} votes)</span>`];
+  if (t.rt != null) scores.push(`<span class="rt ${t.rt >= 60 ? "fresh" : "rotten"}">&#127813; ${t.rt}%</span>`);
+  if (t.mc != null) scores.push(`<span class="mc ${t.mc >= 61 ? "good" : t.mc >= 40 ? "mixed" : "bad"}">MC ${t.mc}</span>`);
+  const meta = [];
+  if (t.rated) meta.push(t.rated);
+  if (t.type === "movie" && t.runtime) meta.push(fmtRuntime(t.runtime));
+  if (t.type === "tv" && t.episodes) meta.push(t.episodes + " episodes");
+  meta.push(...t.genres);
+  const svcs = t.services.map(s =>
+    `<div class="svc" style="background:${SERVICE_COLORS[s] || "#444"}">${esc(s)}</div>`).join("");
+  const facts = [];
+  if (t.director) facts.push(`<div><b>Director</b>${esc(t.director)}</div>`);
+  if (t.actors) facts.push(`<div><b>Cast</b>${esc(t.actors)}</div>`);
+  if (t.awards) facts.push(`<div><b>Awards</b>${esc(t.awards)}</div>`);
+  if (t.box_office) facts.push(`<div><b>Box office</b>${esc(t.box_office)}</div>`);
+  const trailer = t.trailer
+    ? `<a class="trailerbtn" href="https://www.youtube.com/watch?v=${esc(t.trailer)}" target="_blank" rel="noopener">&#9654; Watch trailer</a>`
+    : "";
+  document.getElementById("modalBody").innerHTML = `
+    <div class="mhead">
+      ${t.poster ? `<img src="${esc(t.poster)}" alt="">` : ""}
+      <div>
+        <div class="mtitle">${esc(t.title)} <span class="yr">${t.year ? "(" + t.year + ")" : ""}</span></div>
+        <div class="mscores">${scores.join(" &nbsp; ")}</div>
+        <div class="mmeta">${esc(meta.join(" · "))}</div>
+        <div class="msvc">${svcs}</div>
+        ${trailer}
+      </div>
+    </div>
+    <div class="mbody">${esc(t.overview)}</div>
+    <div class="mfacts">${facts.join("")}</div>`;
+  document.getElementById("overlay").style.display = "flex";
+}
+
+function closeModal() { document.getElementById("overlay").style.display = "none"; }
+document.getElementById("modalClose").addEventListener("click", closeModal);
+document.getElementById("overlay").addEventListener("click", e => {
+  if (e.target === document.getElementById("overlay")) closeModal();
+});
+document.addEventListener("keydown", e => { if (e.key === "Escape") closeModal(); });
 
 const esc = s => String(s).replace(/[&<>"']/g, c => ({"&":"&amp;","<":"&lt;",">":"&gt;",'"':"&quot;","'":"&#39;"}[c]));
 const fmtVotes = v => v >= 1e6 ? (v/1e6).toFixed(1) + "M" : v >= 1e3 ? Math.round(v/1e3) + "K" : v;

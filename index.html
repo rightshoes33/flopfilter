@@ -70,6 +70,9 @@
     border-radius: 8px; padding: 8px 16px;
   }
   .trailerbtn:hover { filter: brightness(1.15); }
+  .trailerbtn { cursor: pointer; border: none; font-family: inherit; }
+  .trailerwrap { position: relative; width: 100%; aspect-ratio: 16/9; margin-top: 12px; }
+  .trailerwrap iframe { position: absolute; inset: 0; width: 100%; height: 100%; border: 0; border-radius: 10px; }
   .mbody { margin-top: 16px; font-size: 14px; line-height: 1.6; }
   .mfacts { margin-top: 14px; font-size: 13px; }
   .mfacts div { margin-bottom: 5px; }
@@ -490,7 +493,7 @@ function openModal(t) {
   if (t.awards) facts.push(`<div><b>Awards</b>${esc(t.awards)}</div>`);
   if (t.box_office) facts.push(`<div><b>Box office</b>${esc(t.box_office)}</div>`);
   const trailer = t.trailer
-    ? `<a class="trailerbtn" href="https://www.youtube.com/watch?v=${esc(t.trailer)}" target="_blank" rel="noopener">&#9654; Watch trailer</a>`
+    ? `<button class="trailerbtn" onclick="playTrailer(this, '${esc(t.trailer)}')">&#9654; Watch trailer</button>`
     : "";
   document.getElementById("modalBody").innerHTML = `
     <div class="mhead">
@@ -508,7 +511,21 @@ function openModal(t) {
   document.getElementById("overlay").style.display = "flex";
 }
 
-function closeModal() { document.getElementById("overlay").style.display = "none"; }
+function playTrailer(btn, key) {
+  // Swap the button for an embedded player (loads only on click, no-cookie domain)
+  const wrap = document.createElement("div");
+  wrap.className = "trailerwrap";
+  const src = "https://www.youtube-nocookie.com/embed/" + encodeURIComponent(key) +
+    "?autoplay=1&rel=0";
+  wrap.innerHTML = '<iframe src="' + src + '" title="Trailer" allow="autoplay; ' +
+    'encrypted-media; fullscreen" allowfullscreen></iframe>';
+  btn.replaceWith(wrap);
+}
+
+function closeModal() {
+  document.getElementById("overlay").style.display = "none";
+  document.getElementById("modalBody").innerHTML = "";   // stop any playing trailer
+}
 document.getElementById("modalClose").addEventListener("click", closeModal);
 document.getElementById("overlay").addEventListener("click", e => {
   if (e.target === document.getElementById("overlay")) closeModal();

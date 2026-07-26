@@ -157,16 +157,18 @@
     .services { grid-column: 1 / -1; flex-direction: row; flex-wrap: wrap; }
     .year { display: none; }
     .yearinline { display: inline; }
+    /* below the search box, right-aligned, instead of overlapping it */
+    .contactlink { position: static; display: block; width: fit-content; margin: 10px 16px 0 auto; }
   }
 </style>
 </head>
 <body>
 
-<a class="contactlink" href="contact.html">Contact Us</a>
-
 <div class="searchbar">
   <input type="search" id="searchBox" placeholder="Search for a movie or TV show to see where it's streaming…" autocomplete="off">
 </div>
+
+<a class="contactlink" href="contact.html">Contact Us</a>
 
 <header>
   <h1>Flop<span>Filter</span></h1>

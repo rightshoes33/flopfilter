@@ -179,8 +179,11 @@ def resolve_imdb_ids(db, kind, tmdb_ids):
             [kind, *tmdb_ids],
         ).fetchall()
     ) if tmdb_ids else {}
-    missing = [t for t in tmdb_ids if t not in cached]
-    print(f"  {kind}: {len(cached):,} cached, {len(missing):,} to fetch")
+    # Re-fetch entries with a blank imdb_id: TMDB often fills these in later
+    # (e.g. for newly-added titles), and a permanently-cached blank would keep
+    # the title out of the ratings join forever.
+    missing = [t for t in tmdb_ids if not cached.get(t)]
+    print(f"  {kind}: {len(cached):,} cached, {len(missing):,} to (re)fetch")
     with ThreadPoolExecutor(max_workers=10) as pool:
         futures = [pool.submit(fetch_imdb_id, kind, t) for t in missing]
         for i, fut in enumerate(as_completed(futures), 1):

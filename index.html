@@ -135,12 +135,22 @@
   }
   .contactlink:hover { border-color: var(--accent2); }
   .searchbar { padding: 16px 28px 0; }
+  .searchwrap { position: relative; max-width: 640px; margin: 0 auto; }
   .searchbar input {
-    width: 100%; max-width: 640px; display: block; margin: 0 auto;
+    width: 100%; display: block;
     background: var(--panel2); color: var(--text); border: 1px solid var(--border);
-    border-radius: 12px; padding: 12px 16px; font-size: 16px; outline: none;
+    border-radius: 12px; padding: 12px 40px 12px 16px; font-size: 16px; outline: none;
   }
   .searchbar input:focus { border-color: var(--accent2); }
+  /* hide the browser's native clear button; we use our own so it's consistent on iOS */
+  .searchbar input::-webkit-search-cancel-button { -webkit-appearance: none; appearance: none; }
+  .searchclear {
+    position: absolute; right: 8px; top: 50%; transform: translateY(-50%);
+    display: none; background: none; border: none; color: var(--muted);
+    font-size: 24px; line-height: 1; cursor: pointer; padding: 4px 8px;
+  }
+  .searchclear:hover { color: var(--text); }
+  body.searching .searchclear { display: block; }   /* shown only while searching */
   /* While searching, hide the filters (search ignores them anyway) so results
      appear right under the search box - crucial on mobile with the keyboard up */
   body.searching .filters { display: none; }
@@ -168,7 +178,10 @@
 <body>
 
 <div class="searchbar">
-  <input type="search" id="searchBox" placeholder="Search for a movie or TV show to see where it's streaming…" autocomplete="off">
+  <div class="searchwrap">
+    <input type="search" id="searchBox" placeholder="Search for a movie or TV show to see where it's streaming…" autocomplete="off">
+    <button id="searchClear" class="searchclear" aria-label="Clear search" type="button">&times;</button>
+  </div>
 </div>
 
 <a class="contactlink" href="contact.html">Contact Us</a>
@@ -557,6 +570,13 @@ function closeModal() {
   document.getElementById("modalBody").innerHTML = "";   // stop any inline media
   document.querySelector(".tvOverlay")?._closeTrailer();
 }
+document.getElementById("searchClear").addEventListener("click", () => {
+  const box = document.getElementById("searchBox");
+  box.value = "";
+  box.blur();      // dismiss the mobile keyboard and return to the filters
+  render();
+});
+
 document.getElementById("modalClose").addEventListener("click", closeModal);
 document.getElementById("overlay").addEventListener("click", e => {
   if (e.target === document.getElementById("overlay")) closeModal();
